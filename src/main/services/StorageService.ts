@@ -41,7 +41,6 @@ export class StorageService {
   constructor() {
     this.store = new ElectronStore<StoreSchema>({
       name: 'course-hub',
-      projectName: 'udemy-pobre',
       defaults: {
         courses: [],
         settings: { ...DEFAULT_SETTINGS }

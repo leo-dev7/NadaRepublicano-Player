@@ -186,6 +186,7 @@ function handleSeek(ms: number) {
           :course="courseStore.activeCourse"
           :active-lesson-id="courseStore.activeLessonId"
           :mpc-active-lesson-id="mpcStore.state.activeLessonId"
+          :mpc-active-file-path="mpcStore.state.activeFilePath"
           @select-lesson="courseStore.selectLesson($event)"
           @play-lesson="courseStore.playLesson($event)"
           @toggle-complete="(id: string, val: boolean) => courseStore.markLessonComplete(id, val)"

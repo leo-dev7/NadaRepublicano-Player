@@ -38,48 +38,66 @@ function formatTime(ms: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-/** Standard installation paths to check */
+/** Query a Windows Registry value */
+async function queryRegistry(key: string, valueName?: string): Promise<string | null> {
+  try {
+    const args = ['query', key]
+    if (valueName) {
+      args.push('/v', valueName)
+    } else {
+      args.push('/ve')
+    }
+    const { stdout } = await execFileAsync('reg.exe', args)
+    const match = stdout.match(/REG_SZ\s+(.+)/i)
+    if (match?.[1]) {
+      const p = match[1].trim()
+      if (existsSync(p)) return p
+    }
+  } catch {
+    // Registry key or value not found
+  }
+  return null
+}
+
+/** Standard and common installation paths to check */
 function getCandidatePaths(): string[] {
   const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files'
   const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
   const userProfile = process.env['USERPROFILE'] || ''
+  const localAppData = process.env['LOCALAPPDATA'] || ''
 
   const paths: string[] = [
+    // K-Lite Codec Pack (very common on Windows)
+    join(programFilesX86, 'K-Lite Codec Pack', 'MPC-HC64', 'mpc-hc64.exe'),
+    join(programFilesX86, 'K-Lite Codec Pack', 'MPC-HC', 'mpc-hc.exe'),
+    join(programFiles, 'K-Lite Codec Pack', 'MPC-HC64', 'mpc-hc64.exe'),
+    join(programFiles, 'K-Lite Codec Pack', 'MPC-HC', 'mpc-hc.exe'),
+    join(programFilesX86, 'K-Lite Codec Pack', 'MPC-BE64', 'mpc-be64.exe'),
+    join(programFiles, 'K-Lite Codec Pack', 'MPC-BE64', 'mpc-be64.exe'),
+
+    // Standard MPC-HC & MPC-BE
     join(programFiles, 'MPC-HC', 'mpc-hc64.exe'),
     join(programFilesX86, 'MPC-HC', 'mpc-hc.exe'),
     join(programFiles, 'MPC-BE x64', 'mpc-be64.exe'),
-    join(programFilesX86, 'MPC-BE', 'mpc-be.exe')
+    join(programFilesX86, 'MPC-BE', 'mpc-be.exe'),
+    join(programFiles, 'MPC-BE', 'mpc-be64.exe'),
+
+    // LocalAppData / Programs
+    join(localAppData, 'Programs', 'MPC-HC', 'mpc-hc64.exe'),
+    join(localAppData, 'Programs', 'MPC-BE', 'mpc-be64.exe'),
+    join(localAppData, 'Programs', 'K-Lite Codec Pack', 'MPC-HC64', 'mpc-hc64.exe')
   ]
 
   if (userProfile) {
     paths.push(
       join(userProfile, 'scoop', 'apps', 'mpc-hc', 'current', 'mpc-hc64.exe'),
-      join(userProfile, 'scoop', 'apps', 'mpc-be', 'current', 'mpc-be64.exe')
+      join(userProfile, 'scoop', 'apps', 'mpc-be', 'current', 'mpc-be64.exe'),
+      join(userProfile, 'scoop', 'shims', 'mpc-hc64.exe'),
+      join(userProfile, 'scoop', 'shims', 'mpc-be64.exe')
     )
   }
 
   return paths
-}
-
-/** Try to find MPC via Windows Registry App Paths */
-async function findViaRegistry(exeName: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync('reg.exe', [
-      'query',
-      `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-      '/ve'
-    ])
-
-    // Extract the path from reg output
-    const match = stdout.match(/REG_SZ\s+(.+)/i)
-    if (match?.[1]) {
-      const path = match[1].trim()
-      if (existsSync(path)) return path
-    }
-  } catch {
-    // Not found in registry
-  }
-  return null
 }
 
 interface MpcBridgeOptions {
@@ -132,26 +150,59 @@ export class MpcBridgeService {
     }
   }
 
+  getDetectedPath(): string | null {
+    return this.detectedPath
+  }
+
   /**
    * Auto-discover MPC executable on this system.
    */
   async detectPlayer(): Promise<string | null> {
     // 1. Check custom path first
     if (this.customPath && existsSync(this.customPath)) {
+      this.detectedPath = this.customPath
       return this.customPath
     }
 
-    // 2. Check standard installation paths
-    const candidates = getCandidatePaths()
-    for (const p of candidates) {
-      if (existsSync(p)) return p
+    // 2. Query Windows Registry for MPC-HC and MPC-BE install paths
+    const regQueries = [
+      { key: 'HKCU\\Software\\MPC-HC\\MPC-HC', val: 'ExePath' },
+      { key: 'HKLM\\Software\\MPC-HC\\MPC-HC', val: 'ExePath' },
+      { key: 'HKCU\\Software\\MPC-BE\\MPC-BE', val: 'ExePath' },
+      { key: 'HKLM\\Software\\MPC-BE\\MPC-BE', val: 'ExePath' },
+      { key: 'HKCU\\Software\\MPC-BE', val: 'ExePath' },
+      { key: 'HKLM\\Software\\MPC-BE', val: 'ExePath' }
+    ]
+    for (const q of regQueries) {
+      const found = await queryRegistry(q.key, q.val)
+      if (found) {
+        this.detectedPath = found
+        return found
+      }
     }
 
-    // 3. Try registry App Paths
+    // 3. Check standard and common installation paths (including K-Lite)
+    const candidates = getCandidatePaths()
+    for (const p of candidates) {
+      if (existsSync(p)) {
+        this.detectedPath = p
+        return p
+      }
+    }
+
+    // 4. Try Windows Registry App Paths (both HKLM and HKCU)
     const regNames = ['mpc-hc64.exe', 'mpc-hc.exe', 'mpc-be64.exe', 'mpc-be.exe']
     for (const name of regNames) {
-      const found = await findViaRegistry(name)
-      if (found) return found
+      const foundHklm = await queryRegistry(`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${name}`)
+      if (foundHklm) {
+        this.detectedPath = foundHklm
+        return foundHklm
+      }
+      const foundHkcu = await queryRegistry(`HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${name}`)
+      if (foundHkcu) {
+        this.detectedPath = foundHkcu
+        return foundHkcu
+      }
     }
 
     return null
@@ -161,7 +212,10 @@ export class MpcBridgeService {
    * Open a file in MPC. Spawns a detached process.
    */
   async openFile(filePath: string, startMs: number = 0, lessonId?: string): Promise<void> {
-    const exePath = this.detectedPath
+    let exePath = this.detectedPath
+    if (!exePath) {
+      exePath = await this.detectPlayer()
+    }
     if (!exePath) {
       throw new Error('MPC player not found. Please configure the path in settings.')
     }
@@ -228,7 +282,7 @@ export class MpcBridgeService {
   startPolling(onState: (state: MpcLiveState) => void): void {
     if (this.pollingTimer) this.stopPolling()
 
-    this.pollingTimer = setInterval(async () => {
+    const poll = async (): Promise<void> => {
       try {
         const state = await this.fetchState()
         this.currentState = state
@@ -241,7 +295,11 @@ export class MpcBridgeService {
           onState(dc)
         }
       }
-    }, this.pollingIntervalMs)
+    }
+
+    // Trigger immediately so UI connects right away without waiting for interval
+    poll()
+    this.pollingTimer = setInterval(poll, this.pollingIntervalMs)
   }
 
   /**

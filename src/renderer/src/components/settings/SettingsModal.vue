@@ -13,6 +13,9 @@ const saved = ref(false)
 
 onMounted(async () => {
   form.value = { ...settingsStore.settings }
+  if (!form.value.mpcCustomPath) {
+    await detectMpc()
+  }
 })
 
 async function detectMpc() {

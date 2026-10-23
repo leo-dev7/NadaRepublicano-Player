@@ -8,6 +8,7 @@ const props = defineProps<{
   course: Course
   activeLessonId: string | null
   mpcActiveLessonId?: string
+  mpcActiveFilePath?: string
 }>()
 
 const emit = defineEmits<{
@@ -50,6 +51,7 @@ const collapsed = ref(false)
         :module="mod"
         :active-lesson-id="activeLessonId"
         :mpc-active-lesson-id="mpcActiveLessonId"
+        :mpc-active-file-path="mpcActiveFilePath"
         @select-lesson="emit('selectLesson', $event)"
         @play-lesson="emit('playLesson', $event)"
         @toggle-complete="(id, val) => emit('toggleComplete', id, val)"

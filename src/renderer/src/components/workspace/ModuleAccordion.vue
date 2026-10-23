@@ -9,6 +9,7 @@ const props = defineProps<{
   module: Module
   activeLessonId: string | null
   mpcActiveLessonId?: string
+  mpcActiveFilePath?: string
 }>()
 
 const emit = defineEmits<{
@@ -60,7 +61,9 @@ const progress = computed(() => {
         :key="lesson.id"
         :lesson="lesson"
         :is-active="lesson.id === activeLessonId"
-        :is-playing="lesson.id === mpcActiveLessonId"
+        :is-playing="
+          lesson.id === mpcActiveLessonId ||
+          (!!mpcActiveFilePath && mpcActiveFilePath.toLowerCase().replace(/\\/g, '/').endsWith(lesson.relativePath.toLowerCase().replace(/\\/g, '/')))"
         @select="emit('selectLesson', lesson.id)"
         @play="emit('playLesson', lesson.id)"
         @toggle-complete="(val) => emit('toggleComplete', lesson.id, val)"

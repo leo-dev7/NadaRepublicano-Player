@@ -89,6 +89,10 @@ async function initServices(): Promise<void> {
     autoConfigRegistry: settings.autoConfigRegistry
   })
   await mpcBridge.init()
+  const detected = mpcBridge.getDetectedPath()
+  if (detected && !settings.mpcCustomPath) {
+    storageService.setSettings({ mpcCustomPath: detected })
+  }
 
   // 4. File Watcher
   fileWatcher = new FileWatcherService()
