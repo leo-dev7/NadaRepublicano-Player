@@ -7,6 +7,11 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
 import Store from 'electron-store'
 
+// Resolve CJS/ESM interop where require('electron-store') is { default: [class ElectronStore] }
+const ElectronStore = (typeof Store === 'function'
+  ? Store
+  : (Store as unknown as { default: typeof Store }).default) as typeof Store
+
 import type { CourseHubStorageFile } from '../../shared/types/course'
 import type { AppSettings } from '../../shared/types/settings'
 import { DEFAULT_SETTINGS } from '../../shared/types/settings'
@@ -34,8 +39,9 @@ export class StorageService {
   private store: Store<StoreSchema>
 
   constructor() {
-    this.store = new Store<StoreSchema>({
+    this.store = new ElectronStore<StoreSchema>({
       name: 'course-hub',
+      projectName: 'udemy-pobre',
       defaults: {
         courses: [],
         settings: { ...DEFAULT_SETTINGS }
