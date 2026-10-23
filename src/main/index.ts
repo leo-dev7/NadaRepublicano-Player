@@ -68,7 +68,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false
     }
   })
 
@@ -335,11 +336,22 @@ function setupFileWatchers(): void {
 app.whenReady().then(async () => {
   // Stream local videos with HTTP Range support (enables seeking, fast buffering in HTML5 video)
   protocol.handle('local-media', (request) => {
-    let rawPath = decodeURIComponent(request.url.replace(/^local-media:\/\//, ''))
-    if (process.platform === 'win32' && rawPath.startsWith('/') && rawPath[2] === ':') {
-      rawPath = rawPath.slice(1)
+    try {
+      const url = new URL(request.url)
+      // Extract target file path from query parameter: local-media://stream?path=...
+      let filePath = url.searchParams.get('path')
+      if (!filePath) {
+        let raw = decodeURIComponent(request.url.replace(/^local-media:\/\//, ''))
+        if (process.platform === 'win32' && raw.startsWith('/') && raw[2] === ':') {
+          raw = raw.slice(1)
+        }
+        filePath = raw
+      }
+      return net.fetch(pathToFileURL(filePath).toString())
+    } catch (err) {
+      console.error('[local-media] Stream fetch error:', err)
+      return new Response('File not found', { status: 404 })
     }
-    return net.fetch(pathToFileURL(rawPath).toString())
   })
 
   await initServices()

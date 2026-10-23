@@ -9,13 +9,9 @@ import {
   VolumeX,
   Maximize,
   Minimize,
-  ExternalLink,
-  Camera,
-  Bookmark,
-  Check,
-  CheckCircle2,
+  Tv,
   SkipForward,
-  Tv
+  AlertCircle
 } from 'lucide-vue-next'
 import type { Course, Lesson } from '@shared/types/course'
 import { useTimeFormat } from '../../composables/useTimeFormat'
@@ -35,7 +31,7 @@ const emit = defineEmits<{
 
 const courseStore = useCourseStore()
 const mpcStore = useMpcStore()
-const { msToTime, msToTimestamp } = useTimeFormat()
+const { msToTime } = useTimeFormat()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const containerRef = ref<HTMLDivElement | null>(null)
@@ -53,13 +49,14 @@ const controlsTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const subtitleUrl = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
 const toastTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+const hasMediaError = ref(false)
+const mediaErrorMessage = ref('')
 
 let progressInterval: ReturnType<typeof setInterval> | null = null
 
 const videoSrc = computed(() => {
   if (!props.lesson?.absolutePath) return ''
-  // Use local-media protocol for streaming local files
-  return `local-media://${props.lesson.absolutePath.replace(/\\/g, '/')}`
+  return `local-media://stream?path=${encodeURIComponent(props.lesson.absolutePath)}`
 })
 
 const progressPercent = computed(() => {
@@ -73,6 +70,20 @@ function showToast(msg: string) {
   toastTimeout.value = setTimeout(() => {
     toastMessage.value = null
   }, 2500)
+}
+
+function handleVideoError(e: Event) {
+  hasMediaError.value = true
+  const video = e.target as HTMLVideoElement
+  const err = video.error
+  if (err) {
+    if (err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+      mediaErrorMessage.value =
+        'Este formato/codec (ex: MKV, HEVC/H.265 ou áudio AC3) não é reproduzido nativamente no navegador Chromium.'
+    } else {
+      mediaErrorMessage.value = `Erro ao carregar vídeo: Código ${err.code}`
+    }
+  }
 }
 
 // Convert SRT to WebVTT Blob URL
@@ -98,6 +109,8 @@ watch(
   async (newLesson) => {
     if (!newLesson) return
 
+    hasMediaError.value = false
+    mediaErrorMessage.value = ''
     currentTime.value = (newLesson.lastPositionMs || 0) / 1000
     isPlaying.value = false
 
@@ -111,6 +124,11 @@ watch(
     if (videoRef.value) {
       videoRef.value.currentTime = currentTime.value
       videoRef.value.playbackRate = playbackRate.value
+      videoRef.value.play().then(() => {
+        isPlaying.value = true
+      }).catch(() => {
+        // Autoplay policy or wait for interaction
+      })
     }
   },
   { immediate: true }
@@ -120,7 +138,6 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 
-  // Periodic progress saving
   progressInterval = setInterval(() => {
     saveCurrentProgress()
   }, 3000)
@@ -159,7 +176,6 @@ function handleTimeUpdate() {
   currentTime.value = videoRef.value.currentTime
   duration.value = videoRef.value.duration || 0
 
-  // Auto-complete at 90%
   if (
     props.lesson &&
     !props.lesson.isCompleted &&
@@ -173,6 +189,7 @@ function handleTimeUpdate() {
 
 function handleLoadedMetadata() {
   if (!videoRef.value) return
+  hasMediaError.value = false
   duration.value = videoRef.value.duration || 0
   if (props.lesson?.lastPositionMs) {
     videoRef.value.currentTime = props.lesson.lastPositionMs / 1000
@@ -188,12 +205,15 @@ function handleEnded() {
   showToast('Aula concluída! Avançando para a próxima...')
   setTimeout(() => {
     courseStore.playNextLesson()
-  }, 1000)
+  }, 800)
 }
 
 function seekRelative(seconds: number) {
   if (!videoRef.value) return
-  videoRef.value.currentTime = Math.max(0, Math.min(duration.value, videoRef.value.currentTime + seconds))
+  videoRef.value.currentTime = Math.max(
+    0,
+    Math.min(duration.value, videoRef.value.currentTime + seconds)
+  )
 }
 
 function handleProgressClick(e: MouseEvent) {
@@ -251,52 +271,8 @@ function handleMouseMove() {
   }, 3000)
 }
 
-// ── Obsidian & Snapshot Integrations ──
-async function captureFrameForObsidian() {
-  if (!videoRef.value || !props.lesson) return
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = videoRef.value.videoWidth || 1920
-    canvas.height = videoRef.value.videoHeight || 1080
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.drawImage(videoRef.value, 0, 0, canvas.width, canvas.height)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
-
-    const res = await window.api.saveSnapshotBase64({
-      courseRootPath: props.course.rootPath,
-      lessonId: props.lesson.id,
-      positionMs: Math.round(videoRef.value.currentTime * 1000),
-      dataUrl
-    })
-
-    const ts = msToTimestamp(videoRef.value.currentTime * 1000)
-    const obsidianMarkdown = `\n> 📸 **[${ts}] Captura de Tela**\n${res.obsidianLink}\n`
-
-    await window.api.copyToClipboard(obsidianMarkdown)
-    showToast(`📸 Frame salvo e link ${res.obsidianLink} copiado para o Obsidian!`)
-  } catch (err) {
-    console.error('Failed to capture frame:', err)
-  }
-}
-
-async function copyTimestampForObsidian() {
-  if (!videoRef.value || !props.lesson) return
-  const ts = msToTimestamp(videoRef.value.currentTime * 1000)
-  const text = `- [${ts}] **${props.lesson.cleanTitle}** - `
-  await window.api.copyToClipboard(text)
-  showToast(`⏱ Timestamp [${ts}] copiado para o Obsidian!`)
-}
-
-async function openInObsidian() {
-  await window.api.openInObsidian(props.course.rootPath)
-  showToast('Abrindo pasta no Obsidian...')
-}
-
 function watchInMpc() {
   if (!props.lesson) return
-  // Pause internal player and resume in MPC
   if (videoRef.value) {
     videoRef.value.pause()
     isPlaying.value = false
@@ -311,7 +287,6 @@ function watchInMpc() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  // Ignore if user is typing in an input
   const tag = (e.target as HTMLElement)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
@@ -362,6 +337,7 @@ function handleKeydown(e: KeyboardEvent) {
       @ended="handleEnded"
       @play="isPlaying = true"
       @pause="isPlaying = false"
+      @error="handleVideoError"
     >
       <track
         v-if="subtitleUrl"
@@ -372,9 +348,30 @@ function handleKeydown(e: KeyboardEvent) {
       />
     </video>
 
+    <!-- Error Fallback (Format / Codec Not Supported in Chromium) -->
+    <div
+      v-if="hasMediaError"
+      class="absolute inset-0 bg-zinc-950/95 flex flex-col items-center justify-center p-8 text-center z-30"
+    >
+      <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 mb-4">
+        <Tv class="w-12 h-12 text-indigo-400" />
+      </div>
+      <h3 class="text-lg font-bold text-zinc-100 mb-2">Este formato de vídeo requer o MPC</h3>
+      <p class="text-xs text-zinc-400 max-w-md mb-6 leading-relaxed">
+        {{ mediaErrorMessage || 'O arquivo utiliza um codec (ex: MKV / H.265 / áudio AC3) que deve ser reproduzido com aceleração nativa no MPC.' }}
+      </p>
+      <button
+        class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl flex items-center gap-2.5 shadow-xl hover:scale-105 active:scale-95 transition-all"
+        @click="watchInMpc"
+      >
+        <Play class="w-4 h-4 fill-current" />
+        <span>Abrir no MPC-HC</span>
+      </button>
+    </div>
+
     <!-- Big Center Play Button Overlay on Pause -->
     <div
-      v-if="!isPlaying"
+      v-if="!isPlaying && !hasMediaError"
       class="absolute inset-0 flex items-center justify-center pointer-events-none"
     >
       <div class="p-6 rounded-full bg-indigo-600/90 text-white shadow-2xl backdrop-blur-sm transform transition-all duration-200 hover:scale-110">
@@ -382,7 +379,7 @@ function handleKeydown(e: KeyboardEvent) {
       </div>
     </div>
 
-    <!-- Top Overlay Bar (Lesson title, MPC sync, Obsidian actions) -->
+    <!-- Top Overlay Bar (Lesson title + Assistir no MPC) -->
     <Transition
       enter-active-class="transition-opacity duration-200"
       leave-active-class="transition-opacity duration-200"
@@ -404,63 +401,15 @@ function handleKeydown(e: KeyboardEvent) {
           </div>
         </div>
 
-        <!-- Action Pills -->
-        <div class="flex items-center gap-2">
-          <!-- Assistir no MPC -->
-          <button
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800/90 hover:bg-indigo-600 text-zinc-200 hover:text-white transition-all shadow-md backdrop-blur-sm"
-            title="Abrir e sincronizar com o MPC-HC externo"
-            @click="watchInMpc"
-          >
-            <Tv class="w-3.5 h-3.5" />
-            <span>Assistir no MPC</span>
-          </button>
-
-          <!-- Obsidian: Copiar Timestamp -->
-          <button
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-900/40 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-700/50 transition-all shadow-md backdrop-blur-sm"
-            title="Copiar timestamp formatado para colar no Obsidian"
-            @click="copyTimestampForObsidian"
-          >
-            <Bookmark class="w-3.5 h-3.5" />
-            <span>Timestamp Obsidian</span>
-          </button>
-
-          <!-- Obsidian: Snapshot Frame -->
-          <button
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-900/40 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-700/50 transition-all shadow-md backdrop-blur-sm"
-            title="Capturar print deste exato frame e copiar link para Obsidian"
-            @click="captureFrameForObsidian"
-          >
-            <Camera class="w-3.5 h-3.5" />
-            <span>Print para Obsidian</span>
-          </button>
-
-          <!-- Abrir no Obsidian -->
-          <button
-            class="p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all backdrop-blur-sm"
-            title="Abrir pasta no Obsidian"
-            @click="openInObsidian"
-          >
-            <ExternalLink class="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- Toast Notification (Top Center) -->
-    <Transition
-      enter-active-class="transition-all duration-200"
-      leave-active-class="transition-all duration-200"
-      enter-from-class="opacity-0 -translate-y-2"
-      leave-to-class="opacity-0 -translate-y-2"
-    >
-      <div
-        v-if="toastMessage"
-        class="absolute top-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-full shadow-2xl z-30 flex items-center gap-2 pointer-events-none"
-      >
-        <CheckCircle2 class="w-4 h-4 text-emerald-300" />
-        <span>{{ toastMessage }}</span>
+        <!-- Assistir no MPC Button -->
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800/90 hover:bg-indigo-600 text-zinc-200 hover:text-white transition-all shadow-md backdrop-blur-sm"
+          title="Abrir no player externo MPC-HC"
+          @click="watchInMpc"
+        >
+          <Tv class="w-3.5 h-3.5" />
+          <span>Assistir no MPC</span>
+        </button>
       </div>
     </Transition>
 
@@ -490,7 +439,6 @@ function handleKeydown(e: KeyboardEvent) {
         <div class="flex items-center justify-between pt-1">
           <!-- Left Controls -->
           <div class="flex items-center gap-3">
-            <!-- Play/Pause -->
             <button
               class="p-2 rounded-lg text-zinc-200 hover:text-white hover:bg-white/10 transition-colors"
               @click="togglePlay"
@@ -498,17 +446,17 @@ function handleKeydown(e: KeyboardEvent) {
               <component :is="isPlaying ? Pause : Play" class="w-5 h-5 fill-current" />
             </button>
 
-            <!-- -10s / +10s -->
+            <!-- -5s / +5s -->
             <button
               class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-              title="Voltar 5 segundos"
+              title="Voltar 5s (Seta Esquerda)"
               @click="seekRelative(-5)"
             >
               <RotateCcw class="w-4 h-4" />
             </button>
             <button
               class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-              title="Avançar 5 segundos"
+              title="Avançar 5s (Seta Direita)"
               @click="seekRelative(5)"
             >
               <RotateCw class="w-4 h-4" />
@@ -520,7 +468,7 @@ function handleKeydown(e: KeyboardEvent) {
             </div>
 
             <!-- Volume Slider -->
-            <div class="flex items-center gap-1.5 group/vol">
+            <div class="flex items-center gap-1.5">
               <button
                 class="p-1.5 text-zinc-400 hover:text-white transition-colors"
                 @click="toggleMute"

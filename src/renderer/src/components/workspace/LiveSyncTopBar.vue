@@ -1,24 +1,21 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import {
   Play,
   Pause,
-  Camera,
   PinIcon,
   LayoutPanelLeft,
   Code,
   FolderOpen,
   SkipForward,
-  Bookmark,
-  Repeat,
   Tv,
-  ExternalLink,
+  ArrowLeft,
+  FolderSync,
   CheckCircle2
 } from 'lucide-vue-next'
 import { useMpcStore } from '../../stores/mpcStore'
 import { useCourseStore } from '../../stores/courseStore'
 import { useMpcControls } from '../../composables/useMpcControls'
-import { useTimeFormat } from '../../composables/useTimeFormat'
 import type { Course, Lesson } from '@shared/types/course'
 
 const props = defineProps<{
@@ -35,7 +32,6 @@ const emit = defineEmits<{
 const mpcStore = useMpcStore()
 const courseStore = useCourseStore()
 const mpc = useMpcControls()
-const { msToTimestamp, msToTime } = useTimeFormat()
 
 const toast = ref<string | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -46,6 +42,17 @@ function showNotification(msg: string) {
   toastTimer = setTimeout(() => {
     toast.value = null
   }, 2500)
+}
+
+async function handleChangeFolder() {
+  const folderPath = await window.api.selectFolder()
+  if (folderPath) {
+    const newCourse = await courseStore.importCourse(folderPath)
+    if (newCourse) {
+      await courseStore.openCourse(newCourse.id)
+      showNotification('Pasta do curso alterada com sucesso!')
+    }
+  }
 }
 
 async function handleSeekBar(e: MouseEvent) {
@@ -73,67 +80,38 @@ async function setSpeed(targetRate: number) {
   }
 }
 
-async function handleSnapshot() {
-  if (!props.course || !props.lesson) return
-  if (!mpcStore.isConnected) {
-    showNotification('MPC offline: Use o botão de print no player acima')
-    return
-  }
-  try {
-    const result = await window.api.mpcSnapshot({
-      courseId: props.course.id,
-      lessonId: props.lesson.id,
-      positionMs: mpcStore.state.positionMs,
-      courseRootPath: props.course.rootPath
-    })
-    const ts = msToTimestamp(mpcStore.state.positionMs)
-    const obsidianMarkdown = `\n> 📸 **[${ts}] Frame MPC**\n![[${result.relativePath.split(/[/\\\\]/).pop()}]]\n`
-    await window.api.copyToClipboard(obsidianMarkdown)
-    showNotification(`📸 Snapshot salvo e copiado para Obsidian!`)
-  } catch (e: any) {
-    console.error('Snapshot failed:', e)
-    showNotification(`Erro no snapshot: ${e.message}`)
-  }
-}
-
-async function handleBookmark() {
-  if (!props.lesson) return
-  const posMs = mpcStore.isConnected ? mpcStore.state.positionMs : (props.lesson.lastPositionMs || 0)
-  const ts = msToTimestamp(posMs)
-  const text = `- [${ts}] **${props.lesson.cleanTitle}** - `
-  await window.api.copyToClipboard(text)
-  showNotification(`⏱ Timestamp [${ts}] copiado para Obsidian!`)
-}
-
-async function openObsidian() {
-  await window.api.openInObsidian(props.course.rootPath)
-  showNotification('Abrindo pasta no Obsidian...')
-}
-
 function watchInMpc() {
   if (!props.lesson) return
   courseStore.playInMpc()
   showNotification('Iniciando MPC...')
 }
-
-function toggleAutoplay() {
-  mpcStore.setAutoplayNext(!mpcStore.state.autoplayNext)
-}
 </script>
 
 <template>
-  <div class="flex items-center gap-2.5 px-4 py-2 bg-zinc-900 border-b border-zinc-800 shrink-0 select-none relative">
-    <!-- Play in MPC button -->
+  <div class="flex items-center gap-3 px-4 py-2 bg-zinc-900 border-b border-zinc-800 shrink-0 select-none relative">
+    <!-- Back to Dashboard -->
     <button
-      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-sm"
-      title="Abrir no player externo MPC-HC"
-      @click="watchInMpc"
+      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+      title="Voltar para a lista de cursos"
+      @click="courseStore.goToDashboard()"
     >
-      <Tv class="w-3.5 h-3.5" />
-      <span>Abrir no MPC</span>
+      <ArrowLeft class="w-4 h-4" />
+      <span>Voltar</span>
     </button>
 
-    <!-- Time display if MPC is connected -->
+    <!-- Mudar Pasta do Curso (Requested feature) -->
+    <button
+      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-indigo-400 hover:text-indigo-300 border border-zinc-700/80 transition-all shadow-sm"
+      title="Selecionar outra pasta de curso no disco"
+      @click="handleChangeFolder"
+    >
+      <FolderSync class="w-3.5 h-3.5" />
+      <span>Mudar Pasta</span>
+    </button>
+
+    <div class="w-px h-5 bg-zinc-800" />
+
+    <!-- MPC Controls (if MPC is connected) -->
     <div v-if="mpcStore.isConnected" class="flex items-center gap-2">
       <button
         class="p-1.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
@@ -149,7 +127,7 @@ function toggleAutoplay() {
 
       <!-- Seek Bar -->
       <div
-        class="w-36 h-2 bg-zinc-800 rounded-full cursor-pointer group relative overflow-hidden"
+        class="w-32 h-2 bg-zinc-800 rounded-full cursor-pointer group relative overflow-hidden"
         title="Seek no MPC"
         @click="handleSeekBar"
       >
@@ -195,26 +173,16 @@ function toggleAutoplay() {
 
     <div class="flex-1" />
 
-    <!-- Obsidian & Productivity Quick Actions -->
+    <!-- Actions Right -->
     <div class="flex items-center gap-2">
-      <!-- Timestamp para Obsidian -->
+      <!-- Assistir no MPC -->
       <button
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-purple-900/30 hover:bg-purple-900/60 text-purple-300 hover:text-white border border-purple-700/40 transition-colors"
-        title="Copiar timestamp da aula atual para colar no Obsidian"
-        @click="handleBookmark"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-sm"
+        title="Abrir a aula atual no player externo MPC-HC"
+        @click="watchInMpc"
       >
-        <Bookmark class="w-3.5 h-3.5" />
-        <span>Copiar Timestamp</span>
-      </button>
-
-      <!-- Abrir no Obsidian -->
-      <button
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors"
-        title="Abrir pasta do curso no Obsidian"
-        @click="openObsidian"
-      >
-        <ExternalLink class="w-3.5 h-3.5 text-purple-400" />
-        <span>Obsidian</span>
+        <Tv class="w-3.5 h-3.5" />
+        <span>Abrir no MPC</span>
       </button>
 
       <!-- Abrir no VS Code -->

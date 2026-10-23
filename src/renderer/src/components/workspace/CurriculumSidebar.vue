@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ChevronLeft, ChevronRight, Layers } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Layers, FolderSync } from 'lucide-vue-next'
 import type { Course } from '@shared/types/course'
+import { useCourseStore } from '../../stores/courseStore'
 import ModuleAccordion from './ModuleAccordion.vue'
 
 const props = defineProps<{
@@ -18,7 +19,18 @@ const emit = defineEmits<{
   openResource: [path: string]
 }>()
 
+const courseStore = useCourseStore()
 const collapsed = ref(false)
+
+async function handleChangeFolder() {
+  const folderPath = await window.api.selectFolder()
+  if (folderPath) {
+    const newCourse = await courseStore.importCourse(folderPath)
+    if (newCourse) {
+      await courseStore.openCourse(newCourse.id)
+    }
+  }
+}
 </script>
 
 <template>
@@ -34,13 +46,23 @@ const collapsed = ref(false)
           Conteúdo do Curso
         </h3>
       </div>
-      <button
-        class="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors mx-auto"
-        :title="collapsed ? 'Expandir currículo' : 'Recolher currículo'"
-        @click="collapsed = !collapsed"
-      >
-        <component :is="collapsed ? ChevronRight : ChevronLeft" class="w-4 h-4" />
-      </button>
+      <div class="flex items-center gap-1">
+        <button
+          v-if="!collapsed"
+          class="p-1 rounded-lg text-zinc-400 hover:text-indigo-400 hover:bg-zinc-800 transition-colors"
+          title="Mudar pasta / selecionar outro curso"
+          @click="handleChangeFolder"
+        >
+          <FolderSync class="w-3.5 h-3.5" />
+        </button>
+        <button
+          class="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors mx-auto"
+          :title="collapsed ? 'Expandir currículo' : 'Recolher currículo'"
+          @click="collapsed = !collapsed"
+        >
+          <component :is="collapsed ? ChevronRight : ChevronLeft" class="w-4 h-4" />
+        </button>
+      </div>
     </div>
 
     <!-- Module List -->
