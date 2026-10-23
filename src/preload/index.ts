@@ -66,13 +66,19 @@ const api = {
   setSettings: (settings: Partial<AppSettings>): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET, settings),
 
-  // ── Shell ──
+  // ── Shell & External Apps ──
   openInExplorer: (filePath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_IN_EXPLORER, filePath),
   openInVSCode: (folderPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_IN_VSCODE, folderPath),
+  openInObsidian: (folderPath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_IN_OBSIDIAN, folderPath),
   snapAssist: (): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_SNAP_ASSIST),
+  copyToClipboard: (text: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_COPY, text),
+  saveSnapshotBase64: (payload: { courseRootPath: string; lessonId: string; positionMs: number; dataUrl: string }): Promise<{ savePath: string; relativePath: string; filename: string; obsidianLink: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SNAPSHOT_SAVE_BASE64, payload),
 
   // ── File ──
   readTextFile: (payload: FileReadTextPayload): Promise<string> =>

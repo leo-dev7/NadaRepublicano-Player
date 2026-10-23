@@ -4,7 +4,9 @@
  */
 
 import { join } from 'path'
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { writeFileSync } from 'fs'
+import { pathToFileURL } from 'url'
+import { app, BrowserWindow, ipcMain, screen, protocol, net, clipboard, shell } from 'electron'
 
 import { IPC_CHANNELS } from '../shared/types/ipc'
 import type { MpcLiveState } from '../shared/types/mpc'
@@ -19,6 +21,20 @@ import { WindowManagerService } from './services/WindowManagerService'
 import { registerCourseIpc } from './ipc/courseIpc'
 import { registerMpcIpc } from './ipc/mpcIpc'
 import { registerSettingsIpc } from './ipc/settingsIpc'
+
+// Register privileged custom scheme for video streaming BEFORE app.whenReady()
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true
+    }
+  }
+])
 
 // ── Services (module-level for cleanup access) ─────────────────
 let mainWindow: BrowserWindow | null = null
@@ -108,6 +124,44 @@ function registerIpcHandlers(): void {
   registerCourseIpc(scannerService, storageService)
   registerMpcIpc(mpcBridge, storageService)
   registerSettingsIpc(storageService)
+
+  // Clipboard
+  ipcMain.handle(IPC_CHANNELS.CLIPBOARD_COPY, (_event, text: string): void => {
+    clipboard.writeText(text)
+  })
+
+  // Obsidian
+  ipcMain.handle(
+    IPC_CHANNELS.SHELL_OPEN_IN_OBSIDIAN,
+    async (_event, folderPath: string): Promise<void> => {
+      try {
+        const uri = `obsidian://open?path=${encodeURIComponent(folderPath)}`
+        await shell.openExternal(uri)
+      } catch {
+        await shell.openPath(folderPath)
+      }
+    }
+  )
+
+  // Save base64 snapshot from internal video player
+  ipcMain.handle(
+    IPC_CHANNELS.SNAPSHOT_SAVE_BASE64,
+    async (_event, payload: { courseRootPath: string; lessonId: string; positionMs: number; dataUrl: string }) => {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `snap_${payload.lessonId}_${payload.positionMs}_${timestamp}.jpg`
+      const snapshotsDir = storageService.snapshotsDir(payload.courseRootPath)
+      const savePath = join(snapshotsDir, filename)
+      const base64Data = payload.dataUrl.replace(/^data:image\/\w+;base64,/, '')
+      writeFileSync(savePath, Buffer.from(base64Data, 'base64'))
+      const relativePath = `.course-hub/snapshots/${filename}`
+      return {
+        savePath,
+        relativePath,
+        filename,
+        obsidianLink: `![[${filename}]]`
+      }
+    }
+  )
 
   // Snap assist needs direct window reference
   ipcMain.handle(
@@ -279,6 +333,15 @@ function setupFileWatchers(): void {
 // ── Lifecycle ──────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  // Stream local videos with HTTP Range support (enables seeking, fast buffering in HTML5 video)
+  protocol.handle('local-media', (request) => {
+    let rawPath = decodeURIComponent(request.url.replace(/^local-media:\/\//, ''))
+    if (process.platform === 'win32' && rawPath.startsWith('/') && rawPath[2] === ':') {
+      rawPath = rawPath.slice(1)
+    }
+    return net.fetch(pathToFileURL(rawPath).toString())
+  })
+
   await initServices()
 
   createWindow()

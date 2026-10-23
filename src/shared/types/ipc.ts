@@ -32,10 +32,13 @@ export const IPC_CHANNELS = {
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
 
-  // Shell
+  // Shell & External Apps
   SHELL_OPEN_IN_EXPLORER: 'shell:open-in-explorer',
   SHELL_OPEN_IN_VSCODE: 'shell:open-in-vscode',
+  SHELL_OPEN_IN_OBSIDIAN: 'shell:open-in-obsidian',
   SHELL_SNAP_ASSIST: 'shell:snap-assist',
+  CLIPBOARD_COPY: 'clipboard:copy',
+  SNAPSHOT_SAVE_BASE64: 'snapshot:save-base64',
 
   // File
   FILE_READ_TEXT: 'file:read-text',
@@ -102,4 +105,11 @@ export interface MpcSnapshotResult {
 
 export interface FileReadTextPayload {
   filePath: string
+}
+
+export interface SaveSnapshotBase64Payload {
+  courseRootPath: string
+  lessonId: string
+  positionMs: number
+  dataUrl: string
 }

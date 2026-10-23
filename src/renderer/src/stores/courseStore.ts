@@ -96,6 +96,10 @@ export const useCourseStore = defineStore('course', () => {
 
   async function playLesson(lessonId: string) {
     await selectLesson(lessonId)
+  }
+
+  async function playInMpc(lessonId?: string) {
+    if (lessonId) await selectLesson(lessonId)
     const lesson = activeLesson.value
     if (!lesson || !activeCourse.value) return
     await window.api.mpcOpenFile({
@@ -113,7 +117,7 @@ export const useCourseStore = defineStore('course', () => {
     const nextLesson = lessons[currentIndex + 1]
     if (nextLesson) {
       await markLessonComplete(activeLessonId.value, true)
-      await playLesson(nextLesson.id)
+      await selectLesson(nextLesson.id)
     }
   }
 
@@ -230,6 +234,7 @@ export const useCourseStore = defineStore('course', () => {
     openCourse,
     selectLesson,
     playLesson,
+    playInMpc,
     playNextLesson,
     markLessonComplete,
     updateLessonProgress,

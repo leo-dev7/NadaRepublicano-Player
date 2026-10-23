@@ -11,7 +11,7 @@ import CourseCard from './components/dashboard/CourseCard.vue'
 import ImportFolderCard from './components/dashboard/ImportFolderCard.vue'
 import LiveSyncTopBar from './components/workspace/LiveSyncTopBar.vue'
 import CurriculumSidebar from './components/workspace/CurriculumSidebar.vue'
-import MarkdownNotebook from './components/workspace/MarkdownNotebook.vue'
+import VideoPlayer from './components/workspace/VideoPlayer.vue'
 import ResourceReader from './components/workspace/ResourceReader.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
 
@@ -22,7 +22,7 @@ const settingsStore = useSettingsStore()
 const showCommandPalette = ref(false)
 const showSettings = ref(false)
 const isDragging = ref(false)
-const workspaceTab = ref<'notes' | 'resources'>('notes')
+const showMaterials = ref(false)
 const selectedResourcePath = ref<string | null>(null)
 
 let unwatchWatcher: (() => void) | null = null
@@ -87,7 +87,7 @@ function handleDragLeave(e: DragEvent) {
 
 function openResource(path: string) {
   selectedResourcePath.value = path
-  workspaceTab.value = 'resources'
+  showMaterials.value = true
 }
 
 function handleSnapAssist() {
@@ -193,56 +193,56 @@ function handleSeek(ms: number) {
           @open-resource="openResource"
         />
 
-        <div class="flex-1 flex flex-col overflow-hidden bg-zinc-950">
-          <!-- Workspace Tabs -->
-          <div class="flex items-center border-b border-zinc-800 bg-zinc-900/40 px-4 shrink-0">
-            <button
-              class="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors relative"
-              :class="workspaceTab === 'notes' ? 'text-indigo-400' : 'text-zinc-400 hover:text-zinc-200'"
-              @click="workspaceTab = 'notes'"
+        <!-- Center / Right: Video Player (Hero) + Collapsible Materials Panel -->
+        <div class="flex-1 flex flex-col overflow-hidden bg-black">
+          <!-- Video Player is always displayed when activeLesson is selected -->
+          <div class="flex-1 overflow-hidden relative flex flex-col bg-black">
+            <VideoPlayer
+              v-if="courseStore.activeLesson"
+              :course="courseStore.activeCourse"
+              :lesson="courseStore.activeLesson"
+              :mpc-connected="mpcStore.isConnected"
+              @play-next="courseStore.playNextLesson()"
+              @open-mpc="courseStore.playInMpc()"
+            />
+            <div
+              v-else
+              class="flex-1 flex flex-col items-center justify-center text-zinc-500 gap-3"
             >
-              Caderno de Estudos
-              <div
-                v-if="workspaceTab === 'notes'"
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full"
-              />
-            </button>
-            <button
-              class="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors relative"
-              :class="workspaceTab === 'resources' ? 'text-indigo-400' : 'text-zinc-400 hover:text-zinc-200'"
-              @click="workspaceTab = 'resources'"
-            >
-              Materiais de Apoio
-              <span
-                v-if="courseStore.activeLesson && courseStore.activeLesson.attachments.length > 0"
-                class="ml-1.5 px-1.5 py-0.2 bg-zinc-800 text-[10px] rounded-full text-zinc-400"
-              >
-                {{ courseStore.activeLesson.attachments.length }}
-              </span>
-              <div
-                v-if="workspaceTab === 'resources'"
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full"
-              />
-            </button>
+              <div class="text-4xl">🎬</div>
+              <p class="text-sm">Selecione uma aula no currículo à esquerda para começar a assistir</p>
+            </div>
           </div>
 
-          <!-- Tab Views -->
-          <div class="flex-1 overflow-hidden">
-            <MarkdownNotebook
-              v-if="workspaceTab === 'notes'"
-              :content="courseStore.activeNoteContent"
-              :lesson="courseStore.activeLesson"
-              :course="courseStore.activeCourse"
-              :mpc-position-ms="mpcStore.state.positionMs"
-              @update:content="courseStore.saveNote($event)"
-              @seek="handleSeek"
-            />
-            <ResourceReader
-              v-else
-              :course="courseStore.activeCourse"
-              :lesson="courseStore.activeLesson"
-              :selected-path="selectedResourcePath"
-            />
+          <!-- Bottom Collapsible Materials / Code Reader -->
+          <div
+            v-if="courseStore.activeLesson && courseStore.activeLesson.attachments.length > 0"
+            class="border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0 transition-all duration-200"
+            :class="showMaterials ? 'h-64' : 'h-9'"
+          >
+            <div
+              class="flex items-center justify-between px-4 py-2 border-b border-zinc-800/80 bg-zinc-900/80 cursor-pointer select-none"
+              @click="showMaterials = !showMaterials"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                  Materiais de Apoio & Arquivos de Código
+                </span>
+                <span class="px-1.5 py-0.2 bg-zinc-800 text-[10px] rounded-full text-indigo-400 font-mono">
+                  {{ courseStore.activeLesson.attachments.length }}
+                </span>
+              </div>
+              <button class="text-xs text-zinc-400 hover:text-zinc-200 font-medium">
+                {{ showMaterials ? 'Recolher Painel' : 'Expandir Materiais' }}
+              </button>
+            </div>
+            <div v-if="showMaterials" class="flex-1 overflow-hidden">
+              <ResourceReader
+                :course="courseStore.activeCourse"
+                :lesson="courseStore.activeLesson"
+                :selected-path="selectedResourcePath"
+              />
+            </div>
           </div>
         </div>
       </div>

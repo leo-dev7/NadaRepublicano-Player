@@ -45,7 +45,8 @@ export async function configureMpcRegistry(
   const values: RegistryValue[] = [
     { name: 'EnableWebServer', type: 'REG_DWORD', value: 1 },
     { name: 'WebServerPort', type: 'REG_DWORD', value: port },
-    { name: 'WebServerLocalhostOnly', type: 'REG_DWORD', value: 1 }
+    { name: 'WebServerLocalhostOnly', type: 'REG_DWORD', value: 1 },
+    { name: 'WebUIEnablePreview', type: 'REG_DWORD', value: 1 }
   ]
 
   for (const entry of values) {
