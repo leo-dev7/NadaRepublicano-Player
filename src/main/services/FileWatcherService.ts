@@ -84,8 +84,10 @@ export class FileWatcherService {
    * Stops all active watchers.
    */
   unwatchAll(): void {
-    for (const [path] of this.watchers) {
-      this.unwatch(path)
+    for (const [, entry] of this.watchers) {
+      if (entry.timer) clearTimeout(entry.timer)
+      entry.watcher.close().catch(() => {})
     }
+    this.watchers.clear()
   }
 }

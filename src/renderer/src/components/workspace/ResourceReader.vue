@@ -2,9 +2,9 @@
 import { ref, computed, watch } from 'vue'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import { FolderOpen, FileCode, FileText, File, ExternalLink } from 'lucide-vue-next'
-import type { Course, Lesson, Attachment } from '@shared/types/course'
+import type { Course, Lesson, Attachment, Module } from '@shared/types/course'
 import { CODE_EXTENSIONS, TEXT_READABLE_EXTENSIONS } from '@shared/constants/extensions'
 
 const props = defineProps<{
@@ -29,8 +29,30 @@ const marked = new Marked(
 )
 
 const attachments = computed((): Attachment[] => {
-  if (!props.lesson) return []
-  return props.lesson.attachments
+  const list: Attachment[] = []
+  if (props.lesson?.attachments) {
+    list.push(...props.lesson.attachments)
+  }
+  if (props.course && props.lesson) {
+    function findMod(modules: Module[]): Module | null {
+      for (const m of modules) {
+        if (m.id === props.lesson?.moduleId) return m
+        if (m.subModules && m.subModules.length > 0) {
+          const found = findMod(m.subModules)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const mod = findMod(props.course.modules)
+    if (mod?.attachments) {
+      list.push(...mod.attachments)
+    }
+  }
+  if (props.course?.attachments) {
+    list.push(...props.course.attachments)
+  }
+  return list
 })
 
 const isTextFile = computed(() => {
@@ -107,6 +129,10 @@ async function openFile(attachment: Attachment) {
 function openInExplorer(path: string) {
   window.api.openInExplorer(path)
 }
+
+function openFileExternal(path: string) {
+  window.api.openPath(path)
+}
 </script>
 
 <template>
@@ -174,13 +200,22 @@ function openInExplorer(path: string) {
         <div v-else-if="isPdf" class="h-full w-full flex flex-col items-center justify-center text-center gap-3">
           <FileText class="w-12 h-12 text-rose-500/80" />
           <p class="text-sm text-zinc-300">Documento PDF: {{ activeFile.filename }}</p>
-          <button
-            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2"
-            @click="openInExplorer(activeFile.absolutePath)"
-          >
-            <ExternalLink class="w-3.5 h-3.5" />
-            <span>Abrir PDF Externamente</span>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2"
+              @click="openFileExternal(activeFile.absolutePath)"
+            >
+              <ExternalLink class="w-3.5 h-3.5" />
+              <span>Abrir PDF no Leitor Padrão</span>
+            </button>
+            <button
+              class="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-2"
+              @click="openInExplorer(activeFile.absolutePath)"
+            >
+              <FolderOpen class="w-3.5 h-3.5" />
+              <span>Mostrar no Explorer</span>
+            </button>
+          </div>
         </div>
 
         <div
@@ -192,13 +227,22 @@ function openInExplorer(path: string) {
         <div v-else class="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
           <File class="w-12 h-12 text-zinc-600" />
           <p class="text-sm text-zinc-300">{{ activeFile.filename }}</p>
-          <button
-            class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium rounded-lg transition-colors flex items-center gap-2"
-            @click="openInExplorer(activeFile.absolutePath)"
-          >
-            <FolderOpen class="w-3.5 h-3.5" />
-            <span>Abrir no Explorer</span>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2"
+              @click="openFileExternal(activeFile.absolutePath)"
+            >
+              <ExternalLink class="w-3.5 h-3.5" />
+              <span>Abrir Arquivo</span>
+            </button>
+            <button
+              class="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-2"
+              @click="openInExplorer(activeFile.absolutePath)"
+            >
+              <FolderOpen class="w-3.5 h-3.5" />
+              <span>Mostrar no Explorer</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

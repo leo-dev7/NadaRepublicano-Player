@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import { Clock, Bold, Italic, Code, Heading2, Eye, Edit3 } from 'lucide-vue-next'
 import { useTimeFormat } from '../../composables/useTimeFormat'
 import { useMarkdownShortcuts } from '../../composables/useMarkdownShortcuts'

@@ -12,7 +12,7 @@ import type {
   MpcSnapshotResult,
   FileReadTextPayload
 } from '../shared/types/ipc'
-import type { Course, LessonNote } from '../shared/types/course'
+import type { Course, LessonNote, CourseListEntry } from '../shared/types/course'
 import type { MpcLiveState } from '../shared/types/mpc'
 import type { AppSettings } from '../shared/types/settings'
 
@@ -22,6 +22,8 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.COURSE_IMPORT, folderPath),
   getAllCourses: (): Promise<Course[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.COURSE_GET_ALL),
+  getRecentCourses: (): Promise<CourseListEntry[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COURSE_GET_RECENT),
   getCourse: (courseId: string): Promise<Course | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.COURSE_GET, courseId),
   deleteCourse: (courseId: string): Promise<void> =>
@@ -52,6 +54,8 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.MPC_SEEK, payload),
   mpcSnapshot: (payload: MpcSnapshotPayload): Promise<MpcSnapshotResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.MPC_SNAPSHOT, payload),
+  mpcSnapshotToClipboard: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MPC_SNAPSHOT_TO_CLIPBOARD),
   mpcDetect: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.MPC_DETECT),
   onMpcStateUpdate: (callback: (state: MpcLiveState) => void): (() => void) => {
@@ -67,6 +71,8 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET, settings),
 
   // ── Shell & External Apps ──
+  openPath: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_PATH, filePath),
   openInExplorer: (filePath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_IN_EXPLORER, filePath),
   openInVSCode: (folderPath: string): Promise<void> =>

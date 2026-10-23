@@ -1,36 +1,109 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Course, Lesson, Module } from '@shared/types/course'
+import type { Course, Lesson, Module, CourseListEntry } from '@shared/types/course'
 
 export type AppView = 'dashboard' | 'workspace'
 
 export const useCourseStore = defineStore('course', () => {
   const courses = ref<Course[]>([])
+  const recentCourses = ref<CourseListEntry[]>([])
   const activeCourse = ref<Course | null>(null)
   const activeLessonId = ref<string | null>(null)
   const activeNoteContent = ref('')
   const view = ref<AppView>('dashboard')
   const isLoading = ref(false)
   const searchQuery = ref('')
+  const targetExpandKey = ref<string | null>(null)
   const noteSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 
-  const activeLesson = computed((): Lesson | null => {
-    if (!activeCourse.value || !activeLessonId.value) return null
-    for (const mod of activeCourse.value.modules) {
-      const lesson = mod.lessons.find((l) => l.id === activeLessonId.value)
-      if (lesson) return lesson
+  function revealItem(target: string) {
+    targetExpandKey.value = target
+  }
+
+  function findLessonRecursive(modules: Module[], lessonId: string): Lesson | null {
+    for (const mod of modules) {
+      const found = mod.lessons.find((l) => l.id === lessonId)
+      if (found) return found
+      if (mod.subModules && mod.subModules.length > 0) {
+        const sub = findLessonRecursive(mod.subModules, lessonId)
+        if (sub) return sub
+      }
     }
     return null
-  })
+  }
 
-  const activeModule = computed((): Module | null => {
-    if (!activeLesson.value || !activeCourse.value) return null
-    return activeCourse.value.modules.find((m) => m.id === activeLesson.value!.moduleId) ?? null
-  })
+  function findModuleRecursive(modules: Module[], moduleId: string): Module | null {
+    for (const mod of modules) {
+      if (mod.id === moduleId) return mod
+      if (mod.subModules && mod.subModules.length > 0) {
+        const sub = findModuleRecursive(mod.subModules, moduleId)
+        if (sub) return sub
+      }
+    }
+    return null
+  }
+
+  function getAllLessonsRecursive(modules: Module[]): Lesson[] {
+    const list: Lesson[] = []
+    for (const mod of modules) {
+      list.push(...mod.lessons)
+      if (mod.subModules && mod.subModules.length > 0) {
+        list.push(...getAllLessonsRecursive(mod.subModules))
+      }
+    }
+    return list
+  }
+
+  function getFirstLessonRecursive(modules: Module[]): Lesson | null {
+    for (const mod of modules) {
+      if (mod.lessons && mod.lessons.length > 0) {
+        return mod.lessons[0]
+      }
+      if (mod.subModules && mod.subModules.length > 0) {
+        const found = getFirstLessonRecursive(mod.subModules)
+        if (found) return found
+      }
+    }
+    return null
+  }
 
   const allLessons = computed((): Lesson[] => {
     if (!activeCourse.value) return []
-    return activeCourse.value.modules.flatMap((m) => m.lessons)
+    return getAllLessonsRecursive(activeCourse.value.modules)
+  })
+
+  const lessonsMap = computed((): Map<string, Lesson> => {
+    const map = new Map<string, Lesson>()
+    for (const l of allLessons.value) {
+      map.set(l.id, l)
+    }
+    return map
+  })
+
+  const modulesMap = computed((): Map<string, Module> => {
+    const map = new Map<string, Module>()
+    function indexModules(mods: Module[]) {
+      for (const m of mods) {
+        map.set(m.id, m)
+        if (m.subModules && m.subModules.length > 0) {
+          indexModules(m.subModules)
+        }
+      }
+    }
+    if (activeCourse.value) {
+      indexModules(activeCourse.value.modules)
+    }
+    return map
+  })
+
+  const activeLesson = computed((): Lesson | null => {
+    if (!activeLessonId.value) return null
+    return lessonsMap.value.get(activeLessonId.value) || null
+  })
+
+  const activeModule = computed((): Module | null => {
+    if (!activeLesson.value) return null
+    return modulesMap.value.get(activeLesson.value.moduleId) || null
   })
 
   const courseProgress = computed(() => {
@@ -48,9 +121,18 @@ export const useCourseStore = defineStore('course', () => {
     )
   })
 
+  async function loadRecentCourses() {
+    try {
+      recentCourses.value = await window.api.getRecentCourses()
+    } catch (e) {
+      console.error('Failed to load recent courses:', e)
+    }
+  }
+
   async function loadCourses() {
     isLoading.value = true
     try {
+      await loadRecentCourses()
       courses.value = await window.api.getAllCourses()
     } catch (e) {
       console.error('Failed to load courses:', e)
@@ -64,22 +146,43 @@ export const useCourseStore = defineStore('course', () => {
     try {
       const course = await window.api.importCourse(folderPath)
       courses.value = [course, ...courses.value.filter((c) => c.id !== course.id)]
+      await loadRecentCourses()
       return course
     } finally {
       isLoading.value = false
     }
   }
 
-  async function openCourse(courseId: string) {
+  async function openCourse(courseId: string, autoPlayInMpc = false) {
     isLoading.value = true
     try {
-      const course = await window.api.getCourse(courseId)
+      let course: Course | null = null
+      try {
+        course = await window.api.getCourse(courseId)
+      } catch (err) {
+        console.warn('Failed to load course via IPC, checking local cache:', err)
+      }
+
+      // If backend returned null, fallback to cached course in courses.value
+      if (!course) {
+        course = courses.value.find((c) => c.id === courseId) || null
+      }
+
       if (course) {
         activeCourse.value = course
         view.value = 'workspace'
-        const targetLessonId = course.lastLessonId || course.modules[0]?.lessons[0]?.id
+        await loadRecentCourses()
+
+        // Prioritize lastLessonId if it exists in the course hierarchy,
+        // otherwise find the first lesson across all modules & submodules
+        let targetLessonId = course.lastLessonId
+        if (!targetLessonId || !findLessonRecursive(course.modules, targetLessonId)) {
+          const firstLesson = getFirstLessonRecursive(course.modules)
+          targetLessonId = firstLesson?.id
+        }
+
         if (targetLessonId) {
-          await selectLesson(targetLessonId)
+          await selectLesson(targetLessonId, autoPlayInMpc)
         }
       }
     } finally {
@@ -87,19 +190,24 @@ export const useCourseStore = defineStore('course', () => {
     }
   }
 
-  async function selectLesson(lessonId: string) {
+  async function selectLesson(lessonId: string, autoPlayInMpc = false) {
     activeLessonId.value = lessonId
     if (activeCourse.value) {
       await loadNote()
     }
+    if (autoPlayInMpc) {
+      await playInMpc(lessonId)
+    }
   }
 
   async function playLesson(lessonId: string) {
-    await selectLesson(lessonId)
+    await selectLesson(lessonId, true)
   }
 
   async function playInMpc(lessonId?: string) {
-    if (lessonId) await selectLesson(lessonId)
+    if (lessonId && lessonId !== activeLessonId.value) {
+      await selectLesson(lessonId, false)
+    }
     const lesson = activeLesson.value
     if (!lesson || !activeCourse.value) return
     await window.api.mpcOpenFile({
@@ -117,7 +225,7 @@ export const useCourseStore = defineStore('course', () => {
     const nextLesson = lessons[currentIndex + 1]
     if (nextLesson) {
       await markLessonComplete(activeLessonId.value, true)
-      await selectLesson(nextLesson.id)
+      await selectLesson(nextLesson.id, true)
     }
   }
 
@@ -129,19 +237,27 @@ export const useCourseStore = defineStore('course', () => {
       completed
     })
 
-    for (const mod of activeCourse.value.modules) {
-      const lesson = mod.lessons.find((l) => l.id === lessonId)
-      if (lesson) {
-        lesson.isCompleted = completed
-        lesson.completedAt = completed ? new Date().toISOString() : undefined
-        mod.completedLessonsCount = mod.lessons.filter((l) => l.isCompleted).length
-        break
+    function updateComplete(modules: Module[]): boolean {
+      for (const mod of modules) {
+        const lesson = mod.lessons.find((l) => l.id === lessonId)
+        if (lesson) {
+          lesson.isCompleted = completed
+          lesson.completedAt = completed ? new Date().toISOString() : undefined
+          mod.completedLessonsCount = mod.lessons.filter((l) => l.isCompleted).length
+          return true
+        }
+        if (mod.subModules && updateComplete(mod.subModules)) {
+          mod.completedLessonsCount =
+            mod.lessons.filter((l) => l.isCompleted).length +
+            mod.subModules.reduce((sum, sm) => sum + sm.completedLessonsCount, 0)
+          return true
+        }
       }
+      return false
     }
-    activeCourse.value.completedLessonsCount = activeCourse.value.modules.reduce(
-      (sum, m) => sum + m.completedLessonsCount,
-      0
-    )
+
+    updateComplete(activeCourse.value.modules)
+    activeCourse.value.completedLessonsCount = allLessons.value.filter((l) => l.isCompleted).length
   }
 
   async function updateLessonProgress(lessonId: string, positionMs: number, durationMs: number) {
@@ -153,14 +269,22 @@ export const useCourseStore = defineStore('course', () => {
       durationMs
     })
 
-    for (const mod of activeCourse.value.modules) {
-      const lesson = mod.lessons.find((l) => l.id === lessonId)
-      if (lesson) {
-        lesson.lastPositionMs = positionMs
-        lesson.durationMs = durationMs
-        break
+    function updatePos(modules: Module[]): boolean {
+      for (const mod of modules) {
+        const lesson = mod.lessons.find((l) => l.id === lessonId)
+        if (lesson) {
+          lesson.lastPositionMs = positionMs
+          lesson.durationMs = durationMs
+          return true
+        }
+        if (mod.subModules && updatePos(mod.subModules)) {
+          return true
+        }
       }
+      return false
     }
+
+    updatePos(activeCourse.value.modules)
     activeCourse.value.lastLessonId = lessonId
     activeCourse.value.lastPositionMs = positionMs
   }
@@ -218,6 +342,7 @@ export const useCourseStore = defineStore('course', () => {
 
   return {
     courses,
+    recentCourses,
     activeCourse,
     activeLessonId,
     activeLesson,
@@ -227,8 +352,11 @@ export const useCourseStore = defineStore('course', () => {
     view,
     isLoading,
     searchQuery,
+    targetExpandKey,
+    revealItem,
     courseProgress,
     filteredCourses,
+    loadRecentCourses,
     loadCourses,
     importCourse,
     openCourse,

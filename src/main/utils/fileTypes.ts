@@ -38,3 +38,42 @@ export function getFilePrefix(filename: string): string {
   const ext = extname(base)
   return ext ? base.slice(0, -ext.length) : base
 }
+
+const IGNORED_SYSTEM_FILES = new Set([
+  'desktop.ini',
+  'thumbs.db',
+  'ehthumbs.db',
+  'ehthumbs_vista.db',
+  '.ds_store',
+  'autorun.inf',
+  'folder.ico',
+  'icon\r'
+])
+
+const IGNORED_DIRECTORIES = new Set([
+  'node_modules',
+  '$recycle.bin',
+  'system volume information',
+  '.course-hub',
+  '.git',
+  '.idea',
+  '.vscode',
+  '.gemini',
+  '.antigravity'
+])
+
+export function isSystemOrJunkFile(filename: string): boolean {
+  const lower = basename(filename).toLowerCase().trim()
+  if (lower.startsWith('.')) return true
+  if (IGNORED_SYSTEM_FILES.has(lower)) return true
+  if (lower.endsWith('.tmp') || lower.endsWith('.crdownload') || lower.endsWith('.part')) return true
+  if (lower.endsWith('.lnk') || lower.endsWith('.url')) return true
+  return false
+}
+
+export function isIgnoredDirectory(name: string): boolean {
+  const lower = name.toLowerCase().trim()
+  if (lower.startsWith('.')) return true
+  if (IGNORED_DIRECTORIES.has(lower)) return true
+  return false
+}

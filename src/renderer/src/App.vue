@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed, defineAsyncComponent } from 'vue'
 import { useCourseStore } from './stores/courseStore'
 import { useMpcStore } from './stores/mpcStore'
 import { useSettingsStore } from './stores/settingsStore'
 import TitleBar from './components/common/TitleBar.vue'
-import CommandPalette from './components/common/CommandPalette.vue'
 import DropZoneOverlay from './components/common/DropZoneOverlay.vue'
 import HeroContinueCard from './components/dashboard/HeroContinueCard.vue'
+import RecentCoursesList from './components/dashboard/RecentCoursesList.vue'
 import CourseCard from './components/dashboard/CourseCard.vue'
 import ImportFolderCard from './components/dashboard/ImportFolderCard.vue'
 import LiveSyncTopBar from './components/workspace/LiveSyncTopBar.vue'
 import CurriculumSidebar from './components/workspace/CurriculumSidebar.vue'
 import VideoPlayer from './components/workspace/VideoPlayer.vue'
-import ResourceReader from './components/workspace/ResourceReader.vue'
-import SettingsModal from './components/settings/SettingsModal.vue'
+
+// Async lazy-loaded components to optimize initial startup bundle & memory
+const CommandPalette = defineAsyncComponent(() => import('./components/common/CommandPalette.vue'))
+const SettingsModal = defineAsyncComponent(() => import('./components/settings/SettingsModal.vue'))
+const ResourceReader = defineAsyncComponent(() => import('./components/workspace/ResourceReader.vue'))
 
 const courseStore = useCourseStore()
 const mpcStore = useMpcStore()
@@ -25,20 +28,34 @@ const isDragging = ref(false)
 const showMaterials = ref(false)
 const selectedResourcePath = ref<string | null>(null)
 
+const totalAvailableMaterialsCount = computed(() => {
+  let count = 0
+  if (courseStore.activeLesson?.attachments) {
+    count += courseStore.activeLesson.attachments.length
+  }
+  if (courseStore.activeModule?.attachments) {
+    count += courseStore.activeModule.attachments.length
+  }
+  if (courseStore.activeCourse?.attachments) {
+    count += courseStore.activeCourse.attachments.length
+  }
+  return count
+})
+
 let unwatchWatcher: (() => void) | null = null
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleKeydown)
+  mpcStore.startListening()
+
   await settingsStore.load()
   await courseStore.loadCourses()
-  mpcStore.startListening()
 
   unwatchWatcher = window.api.onWatcherChanged(async (courseId: string) => {
     if (courseStore.activeCourse?.id === courseId) {
       await courseStore.refreshActiveCourse()
     }
   })
-
-  window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
@@ -88,6 +105,26 @@ function handleDragLeave(e: DragEvent) {
 function openResource(path: string) {
   selectedResourcePath.value = path
   showMaterials.value = true
+  courseStore.revealItem(path)
+}
+
+async function handlePlayLessonFromPalette(lessonId: string, courseId: string) {
+  showCommandPalette.value = false
+  if (courseStore.activeCourse?.id !== courseId) {
+    await courseStore.openCourse(courseId, false)
+  }
+  courseStore.revealItem(lessonId)
+  await courseStore.playLesson(lessonId)
+}
+
+async function handleOpenMaterialFromPalette(resourcePath: string, courseId: string) {
+  showCommandPalette.value = false
+  if (courseStore.activeCourse?.id !== courseId) {
+    await courseStore.openCourse(courseId, false)
+  }
+  courseStore.revealItem(resourcePath)
+  openResource(resourcePath)
+  await window.api.openPath(resourcePath)
 }
 
 function handleSnapAssist() {
@@ -120,22 +157,26 @@ function handleSeek(ms: number) {
       @open-command-palette="showCommandPalette = true"
       @open-settings="showSettings = true"
       @go-dashboard="courseStore.goToDashboard()"
+      @open-course="(id: string) => courseStore.openCourse(id, false)"
     />
 
     <!-- Dashboard View -->
     <div v-if="courseStore.view === 'dashboard'" class="flex-1 overflow-y-auto px-8 py-6">
       <div class="max-w-6xl mx-auto space-y-8">
         <!-- Hero card -->
-        <HeroContinueCard @resume="(id: string) => courseStore.openCourse(id)" />
+        <HeroContinueCard @resume="(id: string) => courseStore.openCourse(id, true)" />
+
+        <!-- Cursos Recentes (Acesso Instantâneo) -->
+        <RecentCoursesList @open-course="(id: string, autoPlay: boolean) => courseStore.openCourse(id, autoPlay)" />
 
         <!-- Courses section -->
         <div>
           <div class="flex items-center justify-between mb-4">
             <div>
-              <h2 class="text-xl font-bold text-zinc-100">Biblioteca de Cursos</h2>
-              <p class="text-xs text-zinc-400 mt-0.5">Pastas locais sincronizadas com seu player MPC</p>
+              <h2 class="text-xl font-bold text-zinc-100">Biblioteca Completa</h2>
+              <p class="text-xs text-zinc-400 mt-0.5">Todas as pastas adicionadas ao Nada Republicano Player</p>
             </div>
-            <ImportFolderCard @imported="(id: string) => courseStore.openCourse(id)" />
+            <ImportFolderCard @imported="(id: string) => courseStore.openCourse(id, false)" />
           </div>
 
           <div v-if="courseStore.isLoading" class="text-center py-16 text-zinc-500 text-sm">
@@ -160,7 +201,7 @@ function handleSeek(ms: number) {
               v-for="course in courseStore.courses"
               :key="course.id"
               :course="course"
-              @open="courseStore.openCourse(course.id)"
+              @open="courseStore.openCourse(course.id, false)"
               @delete="courseStore.deleteCourse(course.id)"
             />
           </div>
@@ -187,7 +228,7 @@ function handleSeek(ms: number) {
           :active-lesson-id="courseStore.activeLessonId"
           :mpc-active-lesson-id="mpcStore.state.activeLessonId"
           :mpc-active-file-path="mpcStore.state.activeFilePath"
-          @select-lesson="courseStore.selectLesson($event)"
+          @select-lesson="courseStore.playLesson($event)"
           @play-lesson="courseStore.playLesson($event)"
           @toggle-complete="(id: string, val: boolean) => courseStore.markLessonComplete(id, val)"
           @open-resource="openResource"
@@ -216,7 +257,7 @@ function handleSeek(ms: number) {
 
           <!-- Bottom Collapsible Materials / Code Reader -->
           <div
-            v-if="courseStore.activeLesson && courseStore.activeLesson.attachments.length > 0"
+            v-if="totalAvailableMaterialsCount > 0"
             class="border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0 transition-all duration-200"
             :class="showMaterials ? 'h-64' : 'h-9'"
           >
@@ -229,7 +270,7 @@ function handleSeek(ms: number) {
                   Materiais de Apoio & Arquivos de Código
                 </span>
                 <span class="px-1.5 py-0.2 bg-zinc-800 text-[10px] rounded-full text-indigo-400 font-mono">
-                  {{ courseStore.activeLesson.attachments.length }}
+                  {{ totalAvailableMaterialsCount }}
                 </span>
               </div>
               <button class="text-xs text-zinc-400 hover:text-zinc-200 font-medium">
@@ -255,8 +296,9 @@ function handleSeek(ms: number) {
     <CommandPalette
       v-if="showCommandPalette"
       @close="showCommandPalette = false"
-      @open-course="(id: string) => { showCommandPalette = false; courseStore.openCourse(id) }"
-      @play-lesson="(id: string) => { showCommandPalette = false; courseStore.playLesson(id) }"
+      @open-course="(id: string) => { showCommandPalette = false; courseStore.openCourse(id, false) }"
+      @play-lesson="handlePlayLessonFromPalette"
+      @open-material="handleOpenMaterialFromPalette"
     />
 
     <!-- Settings Modal -->

@@ -21,6 +21,7 @@ import { WindowManagerService } from './services/WindowManagerService'
 import { registerCourseIpc } from './ipc/courseIpc'
 import { registerMpcIpc } from './ipc/mpcIpc'
 import { registerSettingsIpc } from './ipc/settingsIpc'
+import { processMpcSnapshot } from './utils/imageUtils'
 
 // Register privileged custom scheme for video streaming BEFORE app.whenReady()
 protocol.registerSchemesAsPrivileged([
@@ -52,6 +53,7 @@ let autoPlayNextTriggered = false
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
+    title: 'Nada Republicano Player',
     width: 1280,
     height: 800,
     minWidth: 900,
@@ -286,7 +288,10 @@ function registerShortcuts(): void {
         const snapshotsDir = storageService.snapshotsDir(entry.rootPath)
         const savePath = join(snapshotsDir, filename)
 
-        await mpcBridge.takeSnapshot(savePath)
+        const rawBuffer = await mpcBridge.getSnapshotBuffer()
+        const { image, jpegBuffer } = processMpcSnapshot(rawBuffer)
+        clipboard.writeImage(image)
+        writeFileSync(savePath, jpegBuffer)
 
         // Notify renderer
         if (mainWindow && !mainWindow.isDestroyed()) {

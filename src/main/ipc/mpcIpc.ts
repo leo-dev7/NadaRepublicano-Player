@@ -2,7 +2,7 @@
  * MPC-related IPC handlers.
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain, clipboard } from 'electron'
 
 import { IPC_CHANNELS } from '../../shared/types/ipc'
 import type {
@@ -15,6 +15,7 @@ import type {
 import type { MpcBridgeService } from '../services/MpcBridgeService'
 import type { StorageService } from '../services/StorageService'
 import { join, relative } from 'path'
+import { processMpcSnapshot } from '../utils/imageUtils'
 
 export function registerMpcIpc(
   mpcBridge: MpcBridgeService,
@@ -74,6 +75,21 @@ export function registerMpcIpc(
         snapshotPath,
         relativePath,
         markdownSnippet
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.MPC_SNAPSHOT_TO_CLIPBOARD,
+    async (): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const rawBuffer = await mpcBridge.getSnapshotBuffer()
+        const { image } = processMpcSnapshot(rawBuffer)
+        clipboard.writeImage(image)
+        return { success: true }
+      } catch (err) {
+        console.error('[mpcIpc] Falha ao copiar print para clipboard:', err)
+        return { success: false, error: (err as Error).message }
       }
     }
   )

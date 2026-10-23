@@ -5,13 +5,17 @@ import {
   Pause,
   PinIcon,
   LayoutPanelLeft,
+  Camera,
   Code,
   FolderOpen,
   SkipForward,
   Tv,
   ArrowLeft,
   FolderSync,
-  CheckCircle2
+  CheckCircle2,
+  History,
+  ChevronDown,
+  Folder
 } from 'lucide-vue-next'
 import { useMpcStore } from '../../stores/mpcStore'
 import { useCourseStore } from '../../stores/courseStore'
@@ -33,7 +37,9 @@ const mpcStore = useMpcStore()
 const courseStore = useCourseStore()
 const mpc = useMpcControls()
 
+const showRecent = ref(false)
 const toast = ref<string | null>(null)
+const isCapturing = ref(false)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 function showNotification(msg: string) {
@@ -44,12 +50,36 @@ function showNotification(msg: string) {
   }, 2500)
 }
 
+async function handleCopyFrameSnapshot() {
+  if (isCapturing.value) return
+  isCapturing.value = true
+  try {
+    const res = await window.api.mpcSnapshotToClipboard()
+    if (res.success) {
+      showNotification('✓ Print do frame copiado para a área de transferência!')
+    } else {
+      showNotification(`Aviso: ${res.error || 'Não foi possível capturar o frame do MPC'}`)
+    }
+  } catch {
+    showNotification('Falha ao comunicar com o MPC para obter o frame.')
+  } finally {
+    setTimeout(() => {
+      isCapturing.value = false
+    }, 400)
+  }
+}
+
+async function handleSelectRecentCourse(id: string) {
+  showRecent.value = false
+  await courseStore.openCourse(id, false)
+}
+
 async function handleChangeFolder() {
   const folderPath = await window.api.selectFolder()
   if (folderPath) {
     const newCourse = await courseStore.importCourse(folderPath)
     if (newCourse) {
-      await courseStore.openCourse(newCourse.id)
+      await courseStore.openCourse(newCourse.id, false)
       showNotification('Pasta do curso alterada com sucesso!')
     }
   }
@@ -108,6 +138,40 @@ function watchInMpc() {
       <FolderSync class="w-3.5 h-3.5" />
       <span>Mudar Pasta</span>
     </button>
+
+    <!-- Recent Courses Selector Dropdown -->
+    <div class="relative">
+      <button
+        class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+        title="Alternar para outro curso recente"
+        @click="showRecent = !showRecent"
+      >
+        <History class="w-3.5 h-3.5 text-zinc-400" />
+        <span>Recentes</span>
+        <ChevronDown class="w-3 h-3 text-zinc-500" />
+      </button>
+
+      <div
+        v-if="showRecent"
+        class="absolute top-full left-0 mt-1 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl py-1 z-50 overflow-hidden"
+      >
+        <div class="px-3 py-1 text-[10px] font-semibold uppercase text-zinc-500 border-b border-zinc-800">
+          Cursos Recentes
+        </div>
+        <div class="max-h-56 overflow-y-auto divide-y divide-zinc-800/40">
+          <button
+            v-for="rec in courseStore.recentCourses"
+            :key="rec.id"
+            class="w-full text-left px-3 py-2 hover:bg-zinc-800/80 text-xs flex flex-col gap-0.5"
+            :class="rec.id === course.id ? 'bg-indigo-600/10 text-indigo-400' : 'text-zinc-300'"
+            @click="handleSelectRecentCourse(rec.id)"
+          >
+            <span class="font-medium truncate">{{ rec.title }}</span>
+            <span class="text-[10px] text-zinc-500 font-mono truncate">{{ rec.rootPath }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div class="w-px h-5 bg-zinc-800" />
 
@@ -168,6 +232,17 @@ function watchInMpc() {
         @click="emit('snapAssist')"
       >
         <LayoutPanelLeft class="w-3.5 h-3.5" />
+      </button>
+
+      <!-- Snapshot / Print do frame para Área de Transferência -->
+      <button
+        class="btn-icon !p-1.5 transition-colors relative"
+        :class="isCapturing ? 'text-emerald-400 bg-emerald-500/20' : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'"
+        title="Tirar print do frame e copiar para a área de transferência (Alt+S)"
+        :disabled="isCapturing"
+        @click="handleCopyFrameSnapshot"
+      >
+        <Camera class="w-3.5 h-3.5" />
       </button>
     </div>
 

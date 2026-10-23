@@ -1,3 +1,10 @@
+export interface CourseListEntry {
+  id: string
+  title: string
+  rootPath: string
+  lastAccessedAt: string
+}
+
 export type AttachmentKind = 'pdf' | 'code' | 'archive' | 'text' | 'other'
 
 export interface Attachment {
@@ -38,6 +45,7 @@ export interface Module {
   order: number
   lessons: Lesson[]
   attachments: Attachment[]
+  subModules?: Module[]
   totalDurationMs: number
   completedLessonsCount: number
 }
@@ -62,6 +70,7 @@ export interface Course {
   completedLessonsCount: number
   totalLessonsCount: number
   modules: Module[]
+  attachments?: Attachment[]
   metadata?: CourseMetadata
 }
 

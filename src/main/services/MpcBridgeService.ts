@@ -11,6 +11,7 @@ import { promisify } from 'util'
 import type { MpcLiveState, MpcPlaybackState } from '../../shared/types/mpc'
 import { MPC_VARIABLES_URL, MPC_COMMAND_URL, MPC_SNAPSHOT_URL } from '../../shared/constants/mpcCommands'
 import { configureMpcRegistry } from '../utils/mpcRegistry'
+import { processMpcSnapshot } from '../utils/imageUtils'
 
 const execFileAsync = promisify(execFile)
 
@@ -260,20 +261,29 @@ export class MpcBridgeService {
   }
 
   /**
-   * Take a snapshot and save it to disk.
+   * Fetch raw snapshot image buffer from MPC's web interface.
    */
-  async takeSnapshot(savePath: string): Promise<string> {
+  async getSnapshotBuffer(): Promise<Buffer> {
     const url = MPC_SNAPSHOT_URL(this.port)
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
       const buffer = Buffer.from(await response.arrayBuffer())
-      writeFileSync(savePath, buffer)
-      return savePath
+      return buffer
     } catch (err) {
       throw new Error(`Failed to take snapshot: ${(err as Error).message}`)
     }
+  }
+
+  /**
+   * Take a snapshot, orient it right-side up, and save it to disk.
+   */
+  async takeSnapshot(savePath: string): Promise<string> {
+    const rawBuffer = await this.getSnapshotBuffer()
+    const { jpegBuffer } = processMpcSnapshot(rawBuffer)
+    writeFileSync(savePath, jpegBuffer)
+    return savePath
   }
 
   /**
@@ -300,6 +310,9 @@ export class MpcBridgeService {
     // Trigger immediately so UI connects right away without waiting for interval
     poll()
     this.pollingTimer = setInterval(poll, this.pollingIntervalMs)
+    if (this.pollingTimer.unref) {
+      this.pollingTimer.unref()
+    }
   }
 
   /**

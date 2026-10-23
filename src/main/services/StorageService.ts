@@ -54,9 +54,15 @@ export class StorageService {
     return this.store.get('courses', [])
   }
 
+  saveCourseList(list: CourseListEntry[]): void {
+    this.store.set('courses', list)
+  }
+
   addCourseToList(course: { id: string; title: string; rootPath: string }): void {
-    const list = this.getCourseList()
-    const existing = list.findIndex((c) => c.id === course.id)
+    const normNewPath = course.rootPath.trim().replace(/\\/g, '/').toLowerCase()
+    const list = this.getCourseList().filter(
+      (c) => c.id !== course.id && c.rootPath.trim().replace(/\\/g, '/').toLowerCase() !== normNewPath
+    )
 
     const entry: CourseListEntry = {
       id: course.id,
@@ -65,25 +71,34 @@ export class StorageService {
       lastAccessedAt: new Date().toISOString()
     }
 
-    if (existing >= 0) {
-      list[existing] = entry
-    } else {
-      list.push(entry)
-    }
-
+    list.unshift(entry)
     this.store.set('courses', list)
   }
 
   removeCourseFromList(courseId: string): void {
-    const list = this.getCourseList().filter((c) => c.id !== courseId)
+    const normTarget = courseId.trim().replace(/\\/g, '/').toLowerCase()
+    const list = this.getCourseList().filter((c) => {
+      if (c.id === courseId) return false
+      if (c.rootPath.trim().replace(/\\/g, '/').toLowerCase() === normTarget) return false
+      return true
+    })
     this.store.set('courses', list)
   }
 
-  updateCourseAccess(courseId: string): void {
+  updateCourseAccess(courseId: string, rootPath?: string): void {
     const list = this.getCourseList()
-    const entry = list.find((c) => c.id === courseId)
-    if (entry) {
+    const normTarget = rootPath ? rootPath.trim().replace(/\\/g, '/').toLowerCase() : ''
+    const index = list.findIndex((c) => {
+      if (c.id === courseId) return true
+      if (normTarget && c.rootPath.trim().replace(/\\/g, '/').toLowerCase() === normTarget) return true
+      return false
+    })
+    if (index >= 0) {
+      const entry = list[index]
+      entry.id = courseId // Keep ID synchronized with canonical ID
       entry.lastAccessedAt = new Date().toISOString()
+      list.splice(index, 1)
+      list.unshift(entry)
       this.store.set('courses', list)
     }
   }

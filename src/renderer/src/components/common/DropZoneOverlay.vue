@@ -19,7 +19,7 @@ defineProps<{ visible: boolean }>()
         <FolderOpen class="w-16 h-16 text-indigo-400 animate-bounce" />
         <div>
           <p class="text-xl font-bold text-zinc-100">Solte a pasta do curso aqui</p>
-          <p class="text-sm text-zinc-400 mt-1">O Course Hub irá catalogar as aulas e recuperar o progresso automaticamente</p>
+          <p class="text-sm text-zinc-400 mt-1">O Nada Republicano Player irá catalogar as aulas e recuperar o progresso automaticamente</p>
         </div>
       </div>
     </div>

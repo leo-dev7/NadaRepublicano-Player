@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   // Course
   COURSE_IMPORT: 'course:import',
   COURSE_GET_ALL: 'course:get-all',
+  COURSE_GET_RECENT: 'course:get-recent',
   COURSE_GET: 'course:get',
   COURSE_DELETE: 'course:delete',
   COURSE_RESCAN: 'course:rescan',
@@ -26,6 +27,7 @@ export const IPC_CHANNELS = {
   MPC_SEEK: 'mpc:seek',
   MPC_STATE_UPDATE: 'mpc:state-update',
   MPC_SNAPSHOT: 'mpc:snapshot',
+  MPC_SNAPSHOT_TO_CLIPBOARD: 'mpc:snapshot-to-clipboard',
   MPC_DETECT: 'mpc:detect',
 
   // Settings
@@ -33,6 +35,7 @@ export const IPC_CHANNELS = {
   SETTINGS_SET: 'settings:set',
 
   // Shell & External Apps
+  SHELL_OPEN_PATH: 'shell:open-path',
   SHELL_OPEN_IN_EXPLORER: 'shell:open-in-explorer',
   SHELL_OPEN_IN_VSCODE: 'shell:open-in-vscode',
   SHELL_OPEN_IN_OBSIDIAN: 'shell:open-in-obsidian',

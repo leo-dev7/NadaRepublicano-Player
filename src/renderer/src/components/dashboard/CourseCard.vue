@@ -18,7 +18,7 @@ const progress = Math.round(
 )
 
 function handleDelete() {
-  if (confirm(`Deseja remover o curso "${props.course.cleanTitle}" do Course Hub? (Os arquivos no disco não serão apagados)`)) {
+  if (confirm(`Deseja remover o curso "${props.course.cleanTitle}" do Nada Republicano Player? (Os arquivos no disco não serão apagados)`)) {
     emit('delete')
   }
 }

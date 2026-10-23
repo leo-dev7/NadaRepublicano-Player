@@ -3,7 +3,7 @@
  */
 
 import { ipcMain, dialog, shell } from 'electron'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { execFile } from 'child_process'
 
 import { IPC_CHANNELS } from '../../shared/types/ipc'
@@ -22,6 +22,11 @@ export function registerCourseIpc(
   scanner: CourseScannerService,
   storage: StorageService
 ): void {
+  function findEntry(courseId: string): CourseListEntry | undefined {
+    const list = storage.getCourseList()
+    return list.find((c) => c.id === courseId || scanner.isMatchingCourseId(c.rootPath, courseId))
+  }
+
   // ── Course CRUD ──────────────────────────────────────────────
 
   ipcMain.handle(
@@ -48,44 +53,91 @@ export function registerCourseIpc(
   )
 
   ipcMain.handle(
-    IPC_CHANNELS.COURSE_GET_ALL,
+    IPC_CHANNELS.COURSE_GET_RECENT,
     async (): Promise<CourseListEntry[]> => {
-      return storage.getCourseList()
+      const list = storage.getCourseList()
+      let changed = false
+      const valid = list.filter((e) => existsSync(e.rootPath))
+      for (const entry of valid) {
+        const canonicalId = scanner.getCourseId(entry.rootPath)
+        if (entry.id !== canonicalId) {
+          entry.id = canonicalId
+          changed = true
+        }
+      }
+      if (changed) {
+        storage.saveCourseList(list)
+      }
+      return valid
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.COURSE_GET_ALL,
+    async (): Promise<Course[]> => {
+      const list = storage.getCourseList()
+      let changed = false
+      const results: Course[] = []
+
+      for (const entry of list) {
+        try {
+          if (existsSync(entry.rootPath)) {
+            const course = await scanner.scanFolder(entry.rootPath)
+            if (entry.id !== course.id) {
+              entry.id = course.id
+              changed = true
+            }
+            results.push(course)
+          }
+        } catch (err) {
+          console.warn('[courseIpc] Failed to scan course:', entry.rootPath, err)
+        }
+      }
+
+      if (changed) {
+        storage.saveCourseList(list)
+      }
+      return results
     }
   )
 
   ipcMain.handle(
     IPC_CHANNELS.COURSE_GET,
     async (_event, courseId: string): Promise<Course | null> => {
-      const list = storage.getCourseList()
-      const entry = list.find((c) => c.id === courseId)
+      const entry = findEntry(courseId)
       if (!entry) return null
 
-      storage.updateCourseAccess(courseId)
-      return scanner.scanFolder(entry.rootPath)
+      const course = await scanner.scanFolder(entry.rootPath)
+      storage.updateCourseAccess(course.id, entry.rootPath)
+      return course
     }
   )
 
   ipcMain.handle(
     IPC_CHANNELS.COURSE_DELETE,
     async (_event, courseId: string): Promise<void> => {
-      storage.removeCourseFromList(courseId)
+      const entry = findEntry(courseId)
+      if (entry) {
+        scanner.invalidateCache(entry.rootPath)
+        storage.removeCourseFromList(entry.id)
+      } else {
+        storage.removeCourseFromList(courseId)
+      }
     }
   )
 
   ipcMain.handle(
     IPC_CHANNELS.COURSE_RESCAN,
     async (_event, courseId: string): Promise<Course | null> => {
-      const list = storage.getCourseList()
-      const entry = list.find((c) => c.id === courseId)
+      const entry = findEntry(courseId)
       if (!entry) return null
-      return scanner.scanFolder(entry.rootPath)
+      return scanner.scanFolder(entry.rootPath, true)
     }
   )
 
   ipcMain.handle(
     IPC_CHANNELS.COURSE_GET_LAST,
-    async (): Promise<Course | null> => {
+    async (): Promise<{ course: Course; lessonId?: string; positionMs?: number } | null> => {
       const list = storage.getCourseList()
       if (list.length === 0) return null
 
@@ -93,8 +145,21 @@ export function registerCourseIpc(
       const sorted = [...list].sort(
         (a, b) => new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
       )
-      const last = sorted[0]
-      return scanner.scanFolder(last.rootPath)
+      for (const entry of sorted) {
+        try {
+          if (existsSync(entry.rootPath)) {
+            const course = await scanner.scanFolder(entry.rootPath)
+            return {
+              course,
+              lessonId: course.lastLessonId,
+              positionMs: course.lastPositionMs
+            }
+          }
+        } catch (err) {
+          console.warn('[courseIpc] Failed to load last course:', entry.rootPath, err)
+        }
+      }
+      return null
     }
   )
 
@@ -103,8 +168,7 @@ export function registerCourseIpc(
   ipcMain.handle(
     IPC_CHANNELS.LESSON_SET_PROGRESS,
     async (_event, payload: LessonProgressPayload): Promise<void> => {
-      const list = storage.getCourseList()
-      const entry = list.find((c) => c.id === payload.courseId)
+      const entry = findEntry(payload.courseId)
       if (!entry) return
 
       const hub = storage.loadCourseHub(entry.rootPath) ?? {
@@ -133,8 +197,7 @@ export function registerCourseIpc(
   ipcMain.handle(
     IPC_CHANNELS.LESSON_TOGGLE_COMPLETE,
     async (_event, payload: LessonTogglePayload): Promise<void> => {
-      const list = storage.getCourseList()
-      const entry = list.find((c) => c.id === payload.courseId)
+      const entry = findEntry(payload.courseId)
       if (!entry) return
 
       const hub = storage.loadCourseHub(entry.rootPath) ?? {
@@ -166,8 +229,7 @@ export function registerCourseIpc(
   ipcMain.handle(
     IPC_CHANNELS.NOTE_GET,
     async (_event, payload: NoteGetPayload): Promise<string> => {
-      const list = storage.getCourseList()
-      const entry = list.find((c) => c.id === payload.courseId)
+      const entry = findEntry(payload.courseId)
       if (!entry) return ''
       return storage.loadNote(entry.rootPath, payload.lessonId)
     }
@@ -176,8 +238,7 @@ export function registerCourseIpc(
   ipcMain.handle(
     IPC_CHANNELS.NOTE_SAVE,
     async (_event, payload: NoteSavePayload): Promise<void> => {
-      const list = storage.getCourseList()
-      const entry = list.find((c) => c.id === payload.courseId)
+      const entry = findEntry(payload.courseId)
       if (!entry) return
 
       storage.saveNote(entry.rootPath, payload.lessonId, payload.content)
@@ -219,6 +280,13 @@ export function registerCourseIpc(
   )
 
   // ── Shell helpers ────────────────────────────────────────────
+
+  ipcMain.handle(
+    IPC_CHANNELS.SHELL_OPEN_PATH,
+    async (_event, filePath: string): Promise<string> => {
+      return shell.openPath(filePath)
+    }
+  )
 
   ipcMain.handle(
     IPC_CHANNELS.SHELL_OPEN_IN_EXPLORER,
